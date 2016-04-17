@@ -1,15 +1,6 @@
 package com.vermadas.thetawearremote;
 
-import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
-import android.net.wifi.SupplicantState;
-import android.net.wifi.WifiConfiguration;
-import android.net.wifi.WifiInfo;
-import android.net.wifi.WifiManager;
 import android.util.Log;
 
 import com.vermadas.thetaapi.ThetaCommand;
@@ -22,9 +13,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
-import java.util.List;
-import java.util.Timer;
-import java.util.TimerTask;
+
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -36,14 +25,16 @@ public class ThetaCameraController implements CameraControlInterface<ThetaState>
 {
     public ThetaCameraController(MessageHandler screenLogMessageHandler, Context context) throws CameraException
     {
-        this.messageHandler = screenLogMessageHandler;
-        this._context = context;
-        this.wifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
-        this._intentFilter = new IntentFilter();
-        _intentFilter.addAction(WifiManager.SUPPLICANT_STATE_CHANGED_ACTION);
-
-        connectTheta();
-        updateCheckService = Executors.newScheduledThreadPool(1);
+        _messageHandler = screenLogMessageHandler;
+        _context = context;
+        Runnable wifiConnectCallback = new Runnable()
+        {
+            @Override
+            public void run() { startSession(); }
+        };
+        _wifiConnector = new ThetaWifiConnector(context,screenLogMessageHandler,wifiConnectCallback);
+        _wifiConnector.connect();
+        _updateCheckService = Executors.newScheduledThreadPool(1);
     }
 
     @Override
@@ -194,13 +185,13 @@ public class ThetaCameraController implements CameraControlInterface<ThetaState>
         if (failureException != null)
         {
             Log.e(TAG, "Error processing request", failureException);
-            messageHandler.writeMessageToOnScreenLog(
+            _messageHandler.writeMessageToOnScreenLog(
                     "Error processing request: " + failureException.getMessage());
 
             if (failureException instanceof IOException)
             {
-                messageHandler.writeMessageToOnScreenLog("Camera disconnected");
-                messageHandler.sendMessageToWatch(Messages.CAMERA_DISCONNECTED);
+                _messageHandler.writeMessageToOnScreenLog("Camera disconnected");
+                _messageHandler.sendMessageToWatch(Messages.CAMERA_DISCONNECTED);
                 resetAfterCameraDisconnect();
             }
         }
@@ -227,13 +218,13 @@ public class ThetaCameraController implements CameraControlInterface<ThetaState>
 
                 case Messages.CONFIRMATION_STATE:
 
-                    messageHandler.writeMessageToOnScreenLog("Back from getting state");
+                    _messageHandler.writeMessageToOnScreenLog("Back from getting state");
                     if (!response.has("fingerprint") || !response.has("state")) return;
 
                     _state = new ThetaState(response.getJSONObject("state"));
                     _stateFingerprint = response.getString("fingerprint");
 
-                    messageHandler.writeMessageToOnScreenLog("state is " + _state.getCaptureStatus().name());
+                    _messageHandler.writeMessageToOnScreenLog("state is " + _state.getCaptureStatus().name());
                     if (_firstStateCheck)
                     {
                         _firstStateCheck = false;
@@ -241,8 +232,8 @@ public class ThetaCameraController implements CameraControlInterface<ThetaState>
                     else if (_cameraBusy && _state.getCaptureStatus() == ThetaState.CaptureStatus.IDLE)
                     {
                         _cameraBusy = false;
-                        updateCheckService.shutdown();
-                        messageHandler.sendMessageToWatch(Messages.CAMERA_IDLE);
+                        _updateCheckService.shutdown();
+                        _messageHandler.sendMessageToWatch(Messages.CAMERA_IDLE);
                     }
 
                     break;
@@ -252,8 +243,8 @@ public class ThetaCameraController implements CameraControlInterface<ThetaState>
                     if (!response.has("results") || !response.getJSONObject("results").has("sessionId")) return;
 
                     _sessionId = response.getJSONObject("results").getString("sessionId");
-                    messageHandler.sendMessageToWatch(Messages.CAMERA_CONNECTED);
-                    messageHandler.writeMessageToOnScreenLog("Session created.");
+                    _messageHandler.sendMessageToWatch(Messages.CAMERA_CONNECTED);
+                    _messageHandler.writeMessageToOnScreenLog("Session created.");
                     getOptions();
                     _updateState.run();
 
@@ -270,11 +261,11 @@ public class ThetaCameraController implements CameraControlInterface<ThetaState>
                         ThetaOptions.CaptureMode captureMode = ThetaOptions.CaptureMode.fromString(options.getString("captureMode"));
                         if (captureMode == ThetaOptions.CaptureMode.IMAGE)
                         {
-                            messageHandler.sendMessageToWatch(Messages.CAMERA_MODE_PHOTO);
+                            _messageHandler.sendMessageToWatch(Messages.CAMERA_MODE_PHOTO);
                         }
                         else
                         {
-                            messageHandler.sendMessageToWatch(Messages.CAMERA_MODE_VIDEO);
+                            _messageHandler.sendMessageToWatch(Messages.CAMERA_MODE_VIDEO);
                         }
                     }
 
@@ -283,11 +274,11 @@ public class ThetaCameraController implements CameraControlInterface<ThetaState>
                         int exposureDelay = options.getInt("exposureDelay");
                         if (exposureDelay == 0)
                         {
-                            messageHandler.sendMessageToWatch(Messages.CAMERA_TIMER_OFF);
+                            _messageHandler.sendMessageToWatch(Messages.CAMERA_TIMER_OFF);
                         }
                         else
                         {
-                            messageHandler.sendMessageToWatch(Messages.CAMERA_TIMER_ON);
+                            _messageHandler.sendMessageToWatch(Messages.CAMERA_TIMER_ON);
                         }
                     }
 
@@ -296,32 +287,32 @@ public class ThetaCameraController implements CameraControlInterface<ThetaState>
                         int shutterVolume = options.getInt("_shutterVolume");
                         if (shutterVolume == 0)
                         {
-                            messageHandler.sendMessageToWatch(Messages.CAMERA_VOLUME_MUTED);
+                            _messageHandler.sendMessageToWatch(Messages.CAMERA_VOLUME_MUTED);
                         }
                         else
                         {
-                            messageHandler.sendMessageToWatch(Messages.CAMERA_VOLUME_ON);
+                            _messageHandler.sendMessageToWatch(Messages.CAMERA_VOLUME_ON);
                         }
                     }
                     break;
 
                 case Messages.CONFIRMATION_PHOTO:
 
-                    messageHandler.writeMessageToOnScreenLog(
+                    _messageHandler.writeMessageToOnScreenLog(
                             "Picture processing in progress");
                     break;
 
                 case Messages.CONFIRMATION_CAPTURE_ON:
 
-                    messageHandler.sendMessageToWatch(Messages.CONFIRMATION_CAPTURE_ON);
-                    messageHandler.writeMessageToOnScreenLog(
+                    _messageHandler.sendMessageToWatch(Messages.CONFIRMATION_CAPTURE_ON);
+                    _messageHandler.writeMessageToOnScreenLog(
                             "Capture in progress");
                     break;
 
                 case Messages.CONFIRMATION_CAPTURE_OFF:
 
-                    messageHandler.sendMessageToWatch(Messages.CONFIRMATION_CAPTURE_OFF);
-                    messageHandler.writeMessageToOnScreenLog(
+                    _messageHandler.sendMessageToWatch(Messages.CONFIRMATION_CAPTURE_OFF);
+                    _messageHandler.writeMessageToOnScreenLog(
                             "Capture stopped");
                     break;
 
@@ -333,51 +324,51 @@ public class ThetaCameraController implements CameraControlInterface<ThetaState>
                         takePhoto();
                     }
                     _cameraMode = ThetaOptions.CaptureMode.IMAGE;
-                    messageHandler.sendMessageToWatch(Messages.CAMERA_MODE_PHOTO);
-                    messageHandler.writeMessageToOnScreenLog(
+                    _messageHandler.sendMessageToWatch(Messages.CAMERA_MODE_PHOTO);
+                    _messageHandler.writeMessageToOnScreenLog(
                             "Set Options to Photo Mode");
                     break;
 
                 case Messages.CAMERA_MODE_VIDEO:
 
                     _cameraMode = ThetaOptions.CaptureMode.VIDEO;
-                    messageHandler.sendMessageToWatch(Messages.CAMERA_MODE_VIDEO);
-                    messageHandler.writeMessageToOnScreenLog(
+                    _messageHandler.sendMessageToWatch(Messages.CAMERA_MODE_VIDEO);
+                    _messageHandler.writeMessageToOnScreenLog(
                             "Set Options to Video Mode");
                     break;
 
                 case Messages.CAMERA_VOLUME_MUTED:
 
-                    messageHandler.sendMessageToWatch(Messages.CAMERA_VOLUME_MUTED);
-                    messageHandler.writeMessageToOnScreenLog(
+                    _messageHandler.sendMessageToWatch(Messages.CAMERA_VOLUME_MUTED);
+                    _messageHandler.writeMessageToOnScreenLog(
                             "Set Options to Mute Volume");
                     break;
 
                 case Messages.CAMERA_VOLUME_ON:
 
-                    messageHandler.sendMessageToWatch(Messages.CAMERA_VOLUME_ON);
-                    messageHandler.writeMessageToOnScreenLog(
+                    _messageHandler.sendMessageToWatch(Messages.CAMERA_VOLUME_ON);
+                    _messageHandler.writeMessageToOnScreenLog(
                             "Set Options to Turn Volume On");
                     break;
 
                 case Messages.CAMERA_TIMER_OFF:
 
-                    messageHandler.sendMessageToWatch(Messages.CAMERA_TIMER_OFF);
-                    messageHandler.writeMessageToOnScreenLog(
+                    _messageHandler.sendMessageToWatch(Messages.CAMERA_TIMER_OFF);
+                    _messageHandler.writeMessageToOnScreenLog(
                             "Set Options to Turn Off Photo Timer");
                     break;
 
                 case Messages.CAMERA_TIMER_ON:
 
-                    messageHandler.sendMessageToWatch(Messages.CAMERA_TIMER_ON);
-                    messageHandler.writeMessageToOnScreenLog(
+                    _messageHandler.sendMessageToWatch(Messages.CAMERA_TIMER_ON);
+                    _messageHandler.writeMessageToOnScreenLog(
                             "Set Options to Turn On Photo Timer");
                     break;
 
                 case Messages.CAMERA_DISCONNECTED:
 
-                    messageHandler.sendMessageToWatch(Messages.CAMERA_DISCONNECTED);
-                    messageHandler.writeMessageToOnScreenLog(
+                    _messageHandler.sendMessageToWatch(Messages.CAMERA_DISCONNECTED);
+                    _messageHandler.writeMessageToOnScreenLog(
                             "Session closed");
                     break;
 
@@ -390,83 +381,6 @@ public class ThetaCameraController implements CameraControlInterface<ThetaState>
 
     }
 
-    private void connectTheta() throws CameraException
-    {
-        if (wifiManager.isWifiEnabled())
-        {
-            ConnectivityManager connManager = (ConnectivityManager) _context.getSystemService(Context.CONNECTIVITY_SERVICE);
-            NetworkInfo wifiNetworkInfo = connManager.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
-
-            WifiInfo currentWifiInfo = wifiManager.getConnectionInfo();
-            if (wifiNetworkInfo != null && wifiNetworkInfo.isConnected() &&
-                    currentWifiInfo != null && currentWifiInfo.getSSID().startsWith("\"THETAXS"))
-            {
-                messageHandler.writeMessageToOnScreenLog("Theta already connected to WiFi, starting session...");
-                wifiConnected = true;
-                startSession();
-                return;
-            }
-            else if (currentWifiInfo != null)
-            {
-                wifiNetworkId = currentWifiInfo.getNetworkId();
-            }
-        }
-        else
-        {
-            wifiManager.setWifiEnabled(true);
-        }
-        List<WifiConfiguration> wifiNetworks = wifiManager.getConfiguredNetworks();
-        for (WifiConfiguration config : wifiNetworks)
-        {
-            if (config.SSID.startsWith("\"THETAXS"))
-            {
-                if ( wifiManager.disconnect() &&
-                    wifiManager.enableNetwork(config.networkId, true) &&
-                    wifiManager.reconnect() )
-                {
-                    messageHandler.writeMessageToOnScreenLog("Connecting to Theta WiFi...");
-                    _context.registerReceiver(wifiConnectedReceiver, _intentFilter);
-                    Timer connectTimeoutTimer = new Timer();
-                    connectTimeoutTimer.schedule(new TimerTask()
-                    {
-                        @Override
-                        public void run()
-                        {
-                            if (!wifiConnected)
-                            {
-                                Log.e(TAG, "Connection to camera WiFi timed out");
-                                messageHandler.writeMessageToOnScreenLog("Connection to camera WiFi timed out");
-                                messageHandler.sendMessageToWatch(Messages.CAMERA_ERROR);
-                                messageHandler.sendMessageToWatch(Messages.CAMERA_DISCONNECTED);
-                                _context.unregisterReceiver(wifiConnectedReceiver);
-                            }
-                        }
-
-                    },_connectTimeoutMs);
-                    return;
-                }
-            }
-        }
-
-        throw new CameraException("Unable to establish WiFi connection with Theta");
-    }
-
-    private void disconnectThetaWifi()
-    {
-        if (wifiManager.isWifiEnabled() &&
-                wifiManager.getConnectionInfo() != null &&
-                wifiManager.getConnectionInfo().getSSID().startsWith("\"THETAXS"))
-        {
-            wifiManager.disconnect();
-
-            if (wifiNetworkId != -1)
-            {
-                wifiManager.enableNetwork(wifiNetworkId, true);
-                wifiManager.reconnect();
-                wifiNetworkId = -1;
-            }
-        }
-    }
     private void startSession()
     {
         try
@@ -525,24 +439,23 @@ public class ThetaCameraController implements CameraControlInterface<ThetaState>
     private void startUpdateCheckService()
     {
         _cameraBusy = true;
-        if (updateCheckService.isShutdown())
+        if (_updateCheckService.isShutdown())
         {
-            updateCheckService = Executors.newScheduledThreadPool(1);
+            _updateCheckService = Executors.newScheduledThreadPool(1);
         }
-        updateCheckService.scheduleAtFixedRate(_updateState, 3500, _checkForUpdatesIntervalMs, TimeUnit.MILLISECONDS);
+        _updateCheckService.scheduleAtFixedRate(_updateState, 3500, _checkForUpdatesIntervalMs, TimeUnit.MILLISECONDS);
     }
 
     private void resetAfterCameraDisconnect()
     {
-        updateCheckService.shutdown();
-        disconnectThetaWifi();
+        _updateCheckService.shutdown();
+        _wifiConnector.disconnect();
         _sessionId = null;
         _stateFingerprint = null;
         _state = null;
         _takePhotoAfterModeSwitch = false;
         _cameraBusy = false;
         _firstStateCheck = true;
-        wifiConnected = false;
     }
 
     private final Runnable _updateState = new Runnable()
@@ -570,58 +483,24 @@ public class ThetaCameraController implements CameraControlInterface<ThetaState>
         }
     };
 
-    private final BroadcastReceiver wifiConnectedReceiver = new BroadcastReceiver()
-    {
-        @Override
-        public void onReceive(Context context, Intent intent)
-        {
-            SupplicantState state = intent.getParcelableExtra(WifiManager.EXTRA_NEW_STATE);
-
-            if (SupplicantState.isValidState(state) && state == SupplicantState.COMPLETED)
-            {
-                WifiInfo wifiInfo = wifiManager.getConnectionInfo();
-
-                if (wifiInfo != null && wifiInfo.getSSID().startsWith("\"THETAXS"))
-                {
-                    Timer delaySessionStart = new Timer();
-                    delaySessionStart.schedule(new TimerTask()
-                    {
-                        @Override
-                        public void run()
-                        {
-                            messageHandler.writeMessageToOnScreenLog("Connection established, starting session...");
-                            startSession();
-                            wifiConnected = true;
-                        }
-                    }, _delaySessionStartMs);
-
-                    _context.unregisterReceiver(this);
-                }
-            }
-        }
-    };
-
     private ThetaCameraController getThis()
     {
         return this;
     }
 
-    private boolean wifiConnected;
+    private static final String TAG = "ThetaWearRemote";
+    private static final int _checkForUpdatesIntervalMs = 1500;
+
+    private final MessageHandler _messageHandler;
+    private final Context _context;
+    private final ThetaWifiConnector _wifiConnector;
+
+    private ScheduledExecutorService _updateCheckService;
+    private ThetaOptions.CaptureMode _cameraMode;
     private boolean _cameraBusy;
     private boolean _takePhotoAfterModeSwitch;
     private String _sessionId;
     private String _stateFingerprint;
     private boolean _firstStateCheck = true;
     private ThetaState _state;
-    private int wifiNetworkId = -1;
-    private static final String TAG = "ThetaWearRemote";
-    private static final int _checkForUpdatesIntervalMs = 1500;
-    private static final int _connectTimeoutMs = 12000;
-    private static final int _delaySessionStartMs = 4000;
-    private ScheduledExecutorService updateCheckService;
-    private ThetaOptions.CaptureMode _cameraMode;
-    private IntentFilter _intentFilter;
-    private final MessageHandler messageHandler;
-    private final Context _context;
-    private final WifiManager wifiManager;
 }
