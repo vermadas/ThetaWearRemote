@@ -3,11 +3,9 @@ package com.vermadas.thetawearremote;
 import android.app.Activity;
 import android.os.Bundle;
 import android.support.wearable.view.ProgressSpinner;
-import android.support.wearable.view.WatchViewStub;
 import android.util.Log;
 import android.view.View;
 import android.widget.ImageButton;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
@@ -33,19 +31,10 @@ public class MainActivity extends Activity implements GoogleApiClient.OnConnecti
 {
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(Bundle savedInstanceState)
+    {
         super.onCreate(savedInstanceState);
- //       setContentView(R.layout.activity_main);
-        setContentView(R.layout.rect_activity_main);
-//        final WatchViewStub stub = (WatchViewStub) findViewById(R.id.watch_view_stub);
-
-//        stub.setOnLayoutInflatedListener(new WatchViewStub.OnLayoutInflatedListener() {
-//            @Override
-//            public void onLayoutInflated(WatchViewStub stub) {
-//              thetaRemoteView = (TextView) stub.findViewById(R.id.text);
-//                initUiVars();
-//            }
-//        });
+        setContentView(R.layout.activity_main);
 
         mGoogleApiClient = new GoogleApiClient.Builder(this)
                 .addApi(Wearable.API)
