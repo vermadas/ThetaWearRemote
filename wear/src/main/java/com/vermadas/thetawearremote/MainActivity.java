@@ -51,7 +51,7 @@ public class MainActivity extends Activity implements GoogleApiClient.OnConnecti
         if (!mGoogleApiClient.isConnected()) {
             mGoogleApiClient.connect();
         }
-//        startMobileApp();
+        startMobileApp();
     }
 
     @Override
