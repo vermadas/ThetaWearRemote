@@ -226,14 +226,20 @@ public class MainActivity extends Activity implements GoogleApiClient.OnConnecti
                 timerButton.setImageResource(isTimerOn ? R.drawable.timer_on : R.drawable.timer_off);
                 volumeButton.setImageResource(isMuted ? R.drawable.volume_mute : R.drawable.volume_on);
 
-                connectButton.setEnabled(!isBusy && !isCapturing);
-                takePhotoButton.setEnabled(isConnected && !isBusy && !isCapturing);
-                captureButton.setEnabled(isConnected && !isBusy);
-                modeButton.setEnabled(isConnected && !isBusy && !isCapturing);
-                timerButton.setEnabled(isConnected && !isBusy && !isCapturing);
-                volumeButton.setEnabled(isConnected && !isBusy && !isCapturing);
+                setButtonEnabled(connectButton,(!isBusy && !isCapturing));
+                setButtonEnabled(takePhotoButton,(isConnected && !isBusy && !isCapturing));
+                setButtonEnabled(captureButton,(isConnected && !isBusy));
+                setButtonEnabled(modeButton,(isConnected && !isBusy && !isCapturing));
+                setButtonEnabled(timerButton,(isConnected && !isBusy && !isCapturing));
+                setButtonEnabled(volumeButton,(isConnected && !isBusy && !isCapturing));
             }
         });
+    }
+
+    private void setButtonEnabled(ImageButton button, boolean enable)
+    {
+        button.setEnabled(enable);
+        button.setAlpha(enable ? 1.0f : 0.5f);
     }
 
     private void initUiVars()
